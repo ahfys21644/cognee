@@ -1,6 +1,6 @@
 """Factory function to get the appropriate graph client based on the graph type."""
 
-from functools import lru_cache
+from cognee.infrastructure.databases.utils.closing_lru_cache import closing_lru_cache
 
 from .config import get_graph_context_config
 from .graph_db_interface import GraphDBInterface
@@ -52,7 +52,7 @@ def create_graph_engine(
     )
 
 
-@lru_cache
+@closing_lru_cache(maxsize=8)
 def _create_graph_engine(
     graph_database_provider,
     graph_file_path,

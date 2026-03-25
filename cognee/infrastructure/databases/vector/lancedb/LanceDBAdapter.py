@@ -51,6 +51,19 @@ class LanceDBAdapter(VectorDBInterface):
     api_key: str
     connection: lancedb.AsyncConnection = None
 
+    _shared_session: lancedb.Session = None
+
+    @classmethod
+    def get_shared_session(cls) -> lancedb.Session:
+        """Return a single shared Session with 128 MB cache sizes."""
+        if cls._shared_session is None:
+            cache_bytes = 128 * 1024 * 1024  # 128 MB
+            cls._shared_session = lancedb.Session(
+                index_cache_size_bytes=cache_bytes,
+                metadata_cache_size_bytes=cache_bytes,
+            )
+        return cls._shared_session
+
     def __init__(
         self,
         url: Optional[str],
@@ -67,6 +80,7 @@ class LanceDBAdapter(VectorDBInterface):
         Establishes and returns a connection to the LanceDB.
 
         If a connection already exists, it will return the existing connection.
+        All connections share a single Session to limit cache memory usage.
 
         Returns:
         --------
@@ -74,9 +88,19 @@ class LanceDBAdapter(VectorDBInterface):
             - lancedb.AsyncConnection: An active connection to the LanceDB.
         """
         if self.connection is None:
-            self.connection = await lancedb.connect_async(self.url, api_key=self.api_key)
+            self.connection = await lancedb.connect_async(
+                self.url,
+                api_key=self.api_key,
+                session=self.get_shared_session(),
+            )
 
         return self.connection
+
+    async def close(self):
+        """Close the underlying connection, releasing the session and its caches."""
+        if self.connection is not None:
+            self.connection.close()
+            self.connection = None
 
     async def embed_data(self, data: list[str]) -> list[list[float]]:
         """
@@ -140,11 +164,12 @@ class LanceDBAdapter(VectorDBInterface):
             async with self.VECTOR_DB_LOCK:
                 if not await self.has_collection(collection_name):
                     connection = await self.get_connection()
-                    return await connection.create_table(
+                    with await connection.create_table(
                         name=collection_name,
                         schema=LanceDataPoint,
                         exist_ok=True,
-                    )
+                    ):
+                        return
 
     async def get_collection(self, collection_name: str):
         if not await self.has_collection(collection_name):
@@ -164,53 +189,54 @@ class LanceDBAdapter(VectorDBInterface):
                         payload_schema,
                     )
 
-        collection = await self.get_collection(collection_name)
-
-        data_vectors = await self.embed_data(
-            [DataPoint.get_embeddable_data(data_point) for data_point in data_points]
-        )
-
-        IdType = TypeVar("IdType")
-        PayloadSchema = TypeVar("PayloadSchema")
-        vector_size = self.embedding_engine.get_vector_size()
-
-        class LanceDataPoint(LanceModel, Generic[IdType, PayloadSchema]):
-            """
-            Represents a data point in the Lance model with an ID, vector, and payload.
-
-            This class encapsulates a data point consisting of an identifier, a vector representing
-            the data, and an associated payload, allowing for operations and manipulations specific
-            to the Lance data structure.
-            """
-
-            id: IdType
-            vector: Vector(vector_size)
-            payload: PayloadSchema
-
-        def create_lance_data_point(data_point: DataPoint, vector: list[float]) -> LanceDataPoint:
-            properties = get_own_properties(data_point)
-            properties["id"] = str(properties["id"])
-
-            return LanceDataPoint[str, self.get_data_point_schema(type(data_point))](
-                id=str(data_point.id),
-                vector=vector,
-                payload=properties,
+        with await self.get_collection(collection_name) as collection:
+            data_vectors = await self.embed_data(
+                [DataPoint.get_embeddable_data(data_point) for data_point in data_points]
             )
 
-        lance_data_points = [
-            create_lance_data_point(data_point, data_vectors[data_point_index])
-            for (data_point_index, data_point) in enumerate(data_points)
-        ]
+            IdType = TypeVar("IdType")
+            PayloadSchema = TypeVar("PayloadSchema")
+            vector_size = self.embedding_engine.get_vector_size()
 
-        lance_data_points = list({dp.id: dp for dp in lance_data_points}.values())
+            class LanceDataPoint(LanceModel, Generic[IdType, PayloadSchema]):
+                """
+                Represents a data point in the Lance model with an ID, vector, and payload.
 
-        async with self.VECTOR_DB_LOCK:
-            await (
-                collection.merge_insert("id")
-                .when_matched_update_all()
-                .when_not_matched_insert_all()
-                .execute(lance_data_points)
-            )
+                This class encapsulates a data point consisting of an identifier, a vector
+                representing the data, and an associated payload, allowing for operations and
+                manipulations specific to the Lance data structure.
+                """
+
+                id: IdType
+                vector: Vector(vector_size)
+                payload: PayloadSchema
+
+            def create_lance_data_point(
+                data_point: DataPoint, vector: list[float]
+            ) -> LanceDataPoint:
+                properties = get_own_properties(data_point)
+                properties["id"] = str(properties["id"])
+
+                return LanceDataPoint[str, self.get_data_point_schema(type(data_point))](
+                    id=str(data_point.id),
+                    vector=vector,
+                    payload=properties,
+                )
+
+            lance_data_points = [
+                create_lance_data_point(data_point, data_vectors[data_point_index])
+                for (data_point_index, data_point) in enumerate(data_points)
+            ]
+
+            lance_data_points = list({dp.id: dp for dp in lance_data_points}.values())
+
+            async with self.VECTOR_DB_LOCK:
+                await (
+                    collection.merge_insert("id")
+                    .when_matched_update_all()
+                    .when_not_matched_insert_all()
+                    .execute(lance_data_points)
+                )
 
     async def retrieve(self, collection_name: str, data_point_ids: list[str]):
         try:
@@ -219,22 +245,23 @@ class LanceDBAdapter(VectorDBInterface):
             # If collection doesn't exist, return empty list (no items to retrieve)
             return []
 
-        if len(data_point_ids) == 1:
-            query = collection.query().where(f"id = '{data_point_ids[0]}'")
-        else:
-            query = collection.query().where(f"id IN {tuple(data_point_ids)}")
+        with collection:
+            if len(data_point_ids) == 1:
+                query = collection.query().where(f"id = '{data_point_ids[0]}'")
+            else:
+                query = collection.query().where(f"id IN {tuple(data_point_ids)}")
 
-        # Convert query results to list format
-        results_list = await query.to_list()
+            # Convert query results to list format
+            results_list = await query.to_list()
 
-        return [
-            ScoredResult(
-                id=parse_id(result["id"]),
-                payload=result["payload"],
-                score=0,
-            )
-            for result in results_list
-        ]
+            return [
+                ScoredResult(
+                    id=parse_id(result["id"]),
+                    payload=result["payload"],
+                    score=0,
+                )
+                for result in results_list
+            ]
 
     async def search(
         self,
@@ -257,64 +284,65 @@ class LanceDBAdapter(VectorDBInterface):
             if query_text and not query_vector:
                 query_vector = (await self.embedding_engine.embed_text([query_text]))[0]
 
-            collection = await self.get_collection(collection_name)
+            with await self.get_collection(collection_name) as collection:
+                if limit is None:
+                    limit = await collection.count_rows()
 
-            if limit is None:
-                limit = await collection.count_rows()
+                # LanceDB search will break if limit is 0 so we must return
+                if limit <= 0:
+                    otel_span.set_attribute(COGNEE_VECTOR_RESULT_COUNT, 0)
+                    return []
 
-            # LanceDB search will break if limit is 0 so we must return
-            if limit <= 0:
-                otel_span.set_attribute(COGNEE_VECTOR_RESULT_COUNT, 0)
-                return []
-
-            # Note: Exclude payload if not needed to optimize performance
-            select_columns = (
-                ["id", "vector", "payload", "_distance"]
-                if include_payload
-                else ["id", "vector", "_distance"]
-            )
-
-            if node_name:
-                # Escape quotes to make this input safer, since it's coming from the user
-                # At the time of writing this, no specific binding instructions found on LanceDB docs
-                escaped_node_names = [name.replace("'", "''") for name in node_name]
-                literal_node_names = (
-                    "[" + ", ".join(f"'{name}'" for name in escaped_node_names) + "]"
+                # Note: Exclude payload if not needed to optimize performance
+                select_columns = (
+                    ["id", "vector", "payload", "_distance"]
+                    if include_payload
+                    else ["id", "vector", "_distance"]
                 )
 
-                result_values = (
-                    await collection.vector_search(query_vector)
-                    .where(f"array_has_any(payload.belongs_to_set, {literal_node_names})")
-                    .select(select_columns)
-                    .limit(limit)
-                    .to_list()
-                )
-            else:
-                result_values = (
-                    await collection.vector_search(query_vector)
-                    .select(select_columns)
-                    .limit(limit)
-                    .to_list()
-                )
+                if node_name:
+                    # Escape quotes to make this input safer, since it's coming from the user
+                    # At the time of writing this, no specific binding instructions found on LanceDB docs
+                    escaped_node_names = [name.replace("'", "''") for name in node_name]
+                    literal_node_names = (
+                        "[" + ", ".join(f"'{name}'" for name in escaped_node_names) + "]"
+                    )
 
-            if not result_values:
-                otel_span.set_attribute(COGNEE_VECTOR_RESULT_COUNT, 0)
-                return []
+                    result_values = (
+                        await collection.vector_search(query_vector)
+                        .where(
+                            f"array_has_any(payload.belongs_to_set, {literal_node_names})"
+                        )
+                        .select(select_columns)
+                        .limit(limit)
+                        .to_list()
+                    )
+                else:
+                    result_values = (
+                        await collection.vector_search(query_vector)
+                        .select(select_columns)
+                        .limit(limit)
+                        .to_list()
+                    )
 
-            normalized_values = normalize_distances(result_values)
+                if not result_values:
+                    otel_span.set_attribute(COGNEE_VECTOR_RESULT_COUNT, 0)
+                    return []
 
-            results = [
-                ScoredResult(
-                    id=parse_id(result["id"]),
-                    payload=result["payload"] if include_payload else None,
-                    score=normalized_values[value_index],
-                )
-                for value_index, result in enumerate(result_values)
-            ]
+                normalized_values = normalize_distances(result_values)
 
-            otel_span.set_attribute(COGNEE_VECTOR_RESULT_COUNT, len(results))
+                results = [
+                    ScoredResult(
+                        id=parse_id(result["id"]),
+                        payload=result["payload"] if include_payload else None,
+                        score=normalized_values[value_index],
+                    )
+                    for value_index, result in enumerate(result_values)
+                ]
 
-            return results
+                otel_span.set_attribute(COGNEE_VECTOR_RESULT_COUNT, len(results))
+
+                return results
 
     async def batch_search(
         self,
@@ -346,11 +374,10 @@ class LanceDBAdapter(VectorDBInterface):
         if not await self.has_collection(collection_name):
             return
 
-        collection = await self.get_collection(collection_name)
-
-        # Delete one at a time to avoid commit conflicts
-        for data_point_id in data_point_ids:
-            await collection.delete(f"id = '{data_point_id}'")
+        with await self.get_collection(collection_name) as collection:
+            # Delete one at a time to avoid commit conflicts
+            for data_point_id in data_point_ids:
+                await collection.delete(f"id = '{data_point_id}'")
 
     async def create_vector_index(self, index_name: str, index_property_name: str):
         await self.create_collection(
@@ -377,8 +404,8 @@ class LanceDBAdapter(VectorDBInterface):
         collection_names = await connection.table_names()
 
         for collection_name in collection_names:
-            collection = await self.get_collection(collection_name)
-            await collection.delete("id IS NOT NULL")
+            with await self.get_collection(collection_name) as collection:
+                await collection.delete("id IS NOT NULL")
             await connection.drop_table(collection_name)
 
         if self.url.startswith("/"):
