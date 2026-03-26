@@ -52,7 +52,7 @@ def create_graph_engine(
     )
 
 
-@closing_lru_cache(maxsize=8)
+@closing_lru_cache(maxsize=4)
 def _create_graph_engine(
     graph_database_provider,
     graph_file_path,
