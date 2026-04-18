@@ -2,6 +2,7 @@
 
 # Personal fork - added get_version() helper and noted config import for easy access
 # Also added get_version_tuple() for easier version comparisons
+# Note: search() defaults to SIMILARITY mode - may want to try GRAPH mode for some use cases
 from cognee.api.v1.cognify import cognify
 from cognee.api.v1.add import add
 from cognee.api.v1.search import search
@@ -19,5 +20,10 @@ def get_version() -> str:
 
 
 def get_version_tuple() -> tuple:
-    """Return the current version as a tuple of ints, e.g. (0, 1, 0)."""
+    """Return the current version as a tuple of ints, e.g. (0, 1, 0).
+
+    Useful for version comparisons:
+        if get_version_tuple() >= (0, 1, 0):
+            ...
+    """
     return tuple(int(x) for x in __version__.split("."))
