@@ -18,7 +18,8 @@ class CogneeConfig:
     llm_api_key: Optional[str] = field(default_factory=lambda: os.getenv("LLM_API_KEY"))
     llm_api_base: Optional[str] = field(default_factory=lambda: os.getenv("LLM_API_BASE"))
     llm_temperature: float = field(
-        default_factory=lambda: float(os.getenv("LLM_TEMPERATURE", "0.0"))
+        # Slightly higher temperature for more varied responses in my use case
+        default_factory=lambda: float(os.getenv("LLM_TEMPERATURE", "0.1"))
     )
 
     # Embedding settings
@@ -73,29 +74,4 @@ class CogneeConfig:
     def validate(self) -> None:
         """Raise ValueError if required settings are missing for the chosen providers."""
         api_key_required = {"openai", "anthropic", "cohere"}
-        if self.llm_provider in api_key_required and not self.llm_api_key:
-            raise ValueError(
-                f"LLM_API_KEY is required when using provider '{self.llm_provider}'."
-            )
-        if self.embedding_provider in api_key_required and not self.llm_api_key:
-            raise ValueError(
-                f"LLM_API_KEY is required when using embedding provider '{self.embedding_provider}'."
-            )
-
-
-# Module-level singleton
-_config: Optional[CogneeConfig] = None
-
-
-def get_config() -> CogneeConfig:
-    """Return the global CogneeConfig instance, creating it on first call."""
-    global _config
-    if _config is None:
-        _config = CogneeConfig()
-    return _config
-
-
-def set_config(config: CogneeConfig) -> None:
-    """Replace the global configuration instance."""
-    global _config
-    _config = config
+        if 
