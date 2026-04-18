@@ -18,8 +18,8 @@ class CogneeConfig:
     llm_api_key: Optional[str] = field(default_factory=lambda: os.getenv("LLM_API_KEY"))
     llm_api_base: Optional[str] = field(default_factory=lambda: os.getenv("LLM_API_BASE"))
     llm_temperature: float = field(
-        # Slightly higher temperature for more varied responses in my use case
-        default_factory=lambda: float(os.getenv("LLM_TEMPERATURE", "0.1"))
+        # Keeping temperature at 0.0 for deterministic outputs — I prefer consistency
+        default_factory=lambda: float(os.getenv("LLM_TEMPERATURE", "0.0"))
     )
 
     # Embedding settings
@@ -72,6 +72,4 @@ class CogneeConfig:
     )
 
     def validate(self) -> None:
-        """Raise ValueError if required settings are missing for the chosen providers."""
-        api_key_required = {"openai", "anthropic", "cohere"}
-        if 
+        """Raise ValueError if required settings are missing for the chosen provide
