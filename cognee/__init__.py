@@ -11,7 +11,7 @@ from cognee.config import Config
 
 __version__ = "0.1.0"
 __author__ = "topoteretes (fork)"
-__all__ = ["cognify", "add", "search", "prune", "Config", "get_version", "get_version_tuple"]
+__all__ = ["cognify", "add", "search", "prune", "Config", "get_version", "get_version_tuple", "search_graph"]
 
 
 def get_version() -> str:
@@ -31,7 +31,10 @@ def get_version_tuple() -> tuple:
 
 # TODO: explore wrapping search() with a helper that defaults to GRAPH mode,
 # since SIMILARITY mode misses some relational context in my test datasets.
-def search_graph(query: str, **kwargs):
-    """Convenience wrapper around search() using GRAPH mode by default."""
+def search_graph(query: str, top_k: int = 10, **kwargs):
+    """Convenience wrapper around search() using GRAPH mode by default.
+
+    Added top_k param (default 10) since the default felt too low for my datasets.
+    """
     from cognee.api.v1.search import SearchType
-    return search(query, search_type=SearchType.GRAPH, **kwargs)
+    return search(query, search_type=SearchType.GRAPH, top_k=top_k, **kwargs)
