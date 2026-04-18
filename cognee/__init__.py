@@ -8,6 +8,7 @@ from cognee.api.v1.prune import prune
 from cognee.config import Config
 
 __version__ = "0.1.0"
+__author__ = "topoteretes (fork)"
 __all__ = ["cognify", "add", "search", "prune", "Config", "get_version"]
 
 
