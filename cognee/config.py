@@ -64,12 +64,17 @@ class CogneeConfig:
     db_username: Optional[str] = field(default_factory=lambda: os.getenv("DB_USERNAME"))
     db_password: Optional[str] = field(default_factory=lambda: os.getenv("DB_PASSWORD"))
 
-    # Storage paths
+    # Storage paths — using XDG_DATA_HOME if available, otherwise ~/.cognee/data
     data_root_directory: str = field(
         default_factory=lambda: os.getenv(
-            "DATA_ROOT_DIRECTORY", os.path.join(os.path.expanduser("~"), ".cognee", "data")
+            "DATA_ROOT_DIRECTORY",
+            os.path.join(
+                os.getenv("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share")),
+                "cognee",
+                "data",
+            ),
         )
     )
 
     def validate(self) -> None:
-        """Raise ValueError if required settings are missing for the chosen provide
+        """Raise ValueError if required settings are missing for the chosen 
