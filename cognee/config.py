@@ -29,6 +29,7 @@ class CogneeConfig:
     embedding_model: str = field(
         default_factory=lambda: os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
     )
+    # Using 1536 dims for text-embedding-3-small; switch to 3072 if upgrading to text-embedding-3-large
     embedding_dimensions: int = field(
         default_factory=lambda: int(os.getenv("EMBEDDING_DIMENSIONS", "1536"))
     )
@@ -69,12 +70,4 @@ class CogneeConfig:
         default_factory=lambda: os.getenv(
             "DATA_ROOT_DIRECTORY",
             os.path.join(
-                os.getenv("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share")),
-                "cognee",
-                "data",
-            ),
-        )
-    )
-
-    def validate(self) -> None:
-        """Raise ValueError if required settings are missing for the chosen 
+                os.getenv("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "sha
