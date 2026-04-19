@@ -36,6 +36,11 @@ def search_graph(query: str, top_k: int = 25, **kwargs):
 
     Bumped top_k default from 10 -> 25; 10 was cutting off relevant results
     in my knowledge graph experiments.
+
+    Pass top_k=None to remove the limit entirely (useful for small graphs).
     """
     from cognee.api.v1.search import SearchType
+    # Allow callers to pass top_k=None to get all results without a cap
+    if top_k is None:
+        return search(query, search_type=SearchType.GRAPH, **kwargs)
     return search(query, search_type=SearchType.GRAPH, top_k=top_k, **kwargs)
