@@ -69,7 +69,7 @@ class CogneeConfig:
     # Switched default to ~/cognee-data so it's easier to find on my machine
     data_root_directory: str = field(
         default_factory=lambda: os.getenv(
-            "COGNEE_DATA_ROOT",
+            "DATA_ROOT_DIRECTORY",
             os.path.join(os.path.expanduser("~"), "cognee-data"),
         )
     )
