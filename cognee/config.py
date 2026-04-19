@@ -65,9 +65,15 @@ class CogneeConfig:
     db_username: Optional[str] = field(default_factory=lambda: os.getenv("DB_USERNAME"))
     db_password: Optional[str] = field(default_factory=lambda: os.getenv("DB_PASSWORD"))
 
-    # Storage paths — using XDG_DATA_HOME if available, otherwise ~/.cognee/data
+    # Storage paths — prefer XDG_DATA_HOME if set, otherwise default to ~/.cognee/data
+    # Note: on my machine I keep this under ~/Documents/cognee-data for easier access
     data_root_directory: str = field(
         default_factory=lambda: os.getenv(
             "DATA_ROOT_DIRECTORY",
             os.path.join(
-                os.getenv("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "sha
+                os.getenv("XDG_DATA_HOME", os.path.expanduser("~")),
+                ".cognee",
+                "data",
+            ),
+        )
+    )
