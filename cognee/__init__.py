@@ -31,10 +31,11 @@ def get_version_tuple() -> tuple:
 
 # TODO: explore wrapping search() with a helper that defaults to GRAPH mode,
 # since SIMILARITY mode misses some relational context in my test datasets.
-def search_graph(query: str, top_k: int = 10, **kwargs):
+def search_graph(query: str, top_k: int = 25, **kwargs):
     """Convenience wrapper around search() using GRAPH mode by default.
 
-    Added top_k param (default 10) since the default felt too low for my datasets.
+    Bumped top_k default from 10 -> 25; 10 was cutting off relevant results
+    in my knowledge graph experiments.
     """
     from cognee.api.v1.search import SearchType
     return search(query, search_type=SearchType.GRAPH, top_k=top_k, **kwargs)
