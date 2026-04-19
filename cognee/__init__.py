@@ -31,11 +31,11 @@ def get_version_tuple() -> tuple:
 
 # TODO: explore wrapping search() with a helper that defaults to GRAPH mode,
 # since SIMILARITY mode misses some relational context in my test datasets.
-def search_graph(query: str, top_k: int = 25, **kwargs):
+def search_graph(query: str, top_k: int = 50, **kwargs):
     """Convenience wrapper around search() using GRAPH mode by default.
 
-    Bumped top_k default from 10 -> 25; 10 was cutting off relevant results
-    in my knowledge graph experiments.
+    Bumped top_k default from 25 -> 50; larger graphs in my experiments were
+    still getting truncated at 25. Set top_k=None to remove the limit entirely.
 
     Pass top_k=None to remove the limit entirely (useful for small graphs).
     """
