@@ -69,11 +69,7 @@ class CogneeConfig:
     # Note: on my machine I keep this under ~/Documents/cognee-data for easier access
     data_root_directory: str = field(
         default_factory=lambda: os.getenv(
-            "DATA_ROOT_DIRECTORY",
-            os.path.join(
-                os.getenv("XDG_DATA_HOME", os.path.expanduser("~")),
-                ".cognee",
-                "data",
-            ),
+            "COGNEE_DATA_ROOT",
+            os.path.join(os.path.expanduser("~"), "Documents", "cognee-data"),
         )
     )
