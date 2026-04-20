@@ -31,13 +31,12 @@ def get_version_tuple() -> tuple:
 
 # TODO: explore wrapping search() with a helper that defaults to GRAPH mode,
 # since SIMILARITY mode misses some relational context in my test datasets.
-def search_graph(query: str, top_k: int = 50, **kwargs):
+def search_graph(query: str, top_k: int = 100, **kwargs):
     """Convenience wrapper around search() using GRAPH mode by default.
 
-    Bumped top_k default from 25 -> 50; larger graphs in my experiments were
-    still getting truncated at 25. Set top_k=None to remove the limit entirely.
-
-    Pass top_k=None to remove the limit entirely (useful for small graphs).
+    Bumped top_k default from 50 -> 100; was still seeing truncated results
+    on larger knowledge graphs in my experiments. Set top_k=None to remove
+    the limit entirely (useful for small graphs where you want everything).
     """
     from cognee.api.v1.search import SearchType
     # Allow callers to pass top_k=None to get all results without a cap
