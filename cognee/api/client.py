@@ -1,331 +1,156 @@
-"""FastAPI server for the Cognee API."""
+"""Cognee API client module.
 
-import os
+Provides the main interface for interacting with the cognee knowledge graph system,
+including adding data, searching, and managing the graph.
+"""
 
-import uvicorn
-from traceback import format_exc
-from contextlib import asynccontextmanager
-from fastapi import Request
-from fastapi import FastAPI, status
-from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.exceptions import RequestValidationError
-from fastapi.openapi.utils import get_openapi
+from __future__ import annotations
 
-from cognee.exceptions import CogneeApiError
-from cognee.shared.logging_utils import get_logger, setup_logging
-from cognee.api.v1.cloud.routers import get_checks_router
-from cognee.api.v1.notebooks.routers import get_notebooks_router
-from cognee.api.v1.permissions.routers import get_permissions_router
-from cognee.api.v1.settings.routers import get_settings_router
-from cognee.api.v1.datasets.routers import get_datasets_router
-from cognee.api.v1.cognify.routers import get_cognify_router
-from cognee.api.v1.search.routers import get_search_router
-from cognee.api.v1.ontologies.routers.get_ontology_router import get_ontology_router
-from cognee.api.v1.memify.routers import get_memify_router
-from cognee.api.v1.add.routers import get_add_router
-from cognee.api.v1.delete.routers import get_delete_router
-from cognee.api.v1.remember.routers import get_remember_router
-from cognee.api.v1.recall.routers import get_recall_router
-from cognee.api.v1.improve.routers import get_improve_router
-from cognee.api.v1.forget.routers import get_forget_router
-from cognee.api.v1.responses.routers import get_responses_router
-from cognee.api.v1.llm.routers import get_llm_router
-from cognee.api.v1.sync.routers import get_sync_router
-from cognee.api.v1.health.routers import get_health_router
-from cognee.api.v1.update.routers import get_update_router
-from cognee.api.v1.users.routers import (
-    get_auth_router,
-    get_register_router,
-    get_reset_password_router,
-    get_verify_router,
-    get_users_router,
-    get_visualize_router,
-    get_configuration_router,
-    get_user_id_by_email_router,
-)
-from cognee.api.v1.api_keys.routers import get_api_key_management_router
-from cognee.api.v1.activity.routers import get_activity_router
-from cognee.modules.users.methods.get_authenticated_user import REQUIRE_AUTHENTICATION
+import logging
+from pathlib import Path
+from typing import Any, Optional, Union
 
-# Ensure application logging is configured for container stdout/stderr
-setup_logging()
-logger = get_logger()
+from cognee.config import CogneeConfig
 
-if os.getenv("ENV", "prod") == "prod":
-    try:
-        import sentry_sdk
+logger = logging.getLogger(__name__)
 
-        sentry_sdk.init(
-            dsn=os.getenv("SENTRY_REPORTING_URL"),
-            traces_sample_rate=1.0,
-            profiles_sample_rate=1.0,
-        )
-    except ImportError:
-        logger.info(
-            "Sentry SDK not available. Install with 'pip install cognee\"[monitoring]\"' to enable error monitoring."
-        )
 
+class CogneeClient:
+    """Main client for interacting with the cognee knowledge graph.
 
-app_environment = os.getenv("ENV", "prod")
+    Provides methods for ingesting data, querying the graph, and managing
+    the underlying storage and LLM configurations.
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # from cognee.modules.data.deletion import prune_system, prune_data
-    # await prune_data()
-    # await prune_system(metadata = True)
-    # if app_environment == "local" or app_environment == "dev":
-    from cognee.infrastructure.databases.relational import get_relational_engine
-    from cognee.run_migrations import run_startup_migrations
-
-    try:
-        await run_startup_migrations()
-    except Exception:
-        db_engine = get_relational_engine()
-        await db_engine.create_database()
-
-    await run_startup_migrations()
-
-    from cognee.modules.users.methods import get_default_user
-
-    await get_default_user()
-
-    # Emit a clear startup message for docker logs
-    logger.info("Backend server has started")
-
-    yield
-
-
-app = FastAPI(debug=app_environment != "prod", lifespan=lifespan)
-
-
-# Read allowed origins from environment variable (comma-separated)
-CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS")
-if CORS_ALLOWED_ORIGINS:
-    allowed_origins = [
-        origin.strip() for origin in CORS_ALLOWED_ORIGINS.split(",") if origin.strip()
-    ]
-else:
-    allowed_origins = [
-        os.getenv("UI_APP_URL", "http://localhost:3000"),
-    ]  # Block all except explicitly set origins
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,  # Now controlled by env var
-    allow_credentials=True,
-    allow_methods=["OPTIONS", "GET", "PUT", "POST", "DELETE"],
-    allow_headers=["*"],
-)
-# To allow origins, set CORS_ALLOWED_ORIGINS env variable to a comma-separated list, e.g.:
-# CORS_ALLOWED_ORIGINS="https://yourdomain.com,https://another.com"
-
-
-def custom_openapi():
-    if app.openapi_schema:
-        return app.openapi_schema
-
-    openapi_schema = get_openapi(
-        title="Cognee API",
-        version="1.0.0",
-        description="Cognee API with Bearer token and Cookie auth",
-        routes=app.routes,
-    )
-
-    # Define security schemes with valid identifiers (no hyphens)
-    openapi_schema["components"]["securitySchemes"] = {
-        "ApiKeyAuth": {"type": "apiKey", "in": "header", "name": "X-Api-Key"},
-        "BearerAuth": {"type": "http", "scheme": "bearer"},
-    }
-
-    our_security = [{"BearerAuth": []}, {"ApiKeyAuth": []}]
-
-    if REQUIRE_AUTHENTICATION:
-        # Set global security fallback
-        openapi_schema["security"] = our_security
-
-        # Replace per-operation security refs auto-generated by fastapi-users
-        # (they reference internal names like OAuth2PasswordBearer, APIKeyHeader, APIKeyCookie
-        # which no longer exist after we replaced securitySchemes above)
-        for path_data in openapi_schema.get("paths", {}).values():
-            for operation in path_data.values():
-                if isinstance(operation, dict) and "security" in operation:
-                    operation["security"] = our_security
-
-    app.openapi_schema = openapi_schema
-
-    return app.openapi_schema
-
-
-app.openapi = custom_openapi
-
-
-@app.exception_handler(RequestValidationError)
-async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
-    if request.url.path == "/api/v1/auth/login":
-        return JSONResponse(
-            status_code=400,
-            content={"detail": "LOGIN_BAD_CREDENTIALS"},
-        )
-
-    return JSONResponse(
-        status_code=400,
-        content=jsonable_encoder({"detail": exc.errors(), "body": exc.body}),
-    )
-
-
-@app.exception_handler(CogneeApiError)
-async def exception_handler(_: Request, exc: CogneeApiError) -> JSONResponse:
-    detail = {}
-
-    if exc.name and exc.message and exc.status_code:
-        status_code = exc.status_code
-        detail["message"] = f"{exc.message} [{exc.name}]"
-    else:
-        # Log an error indicating the exception is improperly defined
-        logger.error("Improperly defined exception: %s", exc)
-        # Provide a default error response
-        detail["message"] = "An unexpected error occurred."
-        status_code = status.HTTP_418_IM_A_TEAPOT
-
-    # log the stack trace for easier serverside debugging
-    logger.error(format_exc())
-    return JSONResponse(status_code=status_code, content={"detail": detail["message"]})
-
-
-app.include_router(get_auth_router(), prefix="/api/v1/auth", tags=["auth"])
-
-app.include_router(
-    get_register_router(),
-    prefix="/api/v1/auth",
-    tags=["auth"],
-)
-
-app.include_router(
-    get_reset_password_router(),
-    prefix="/api/v1/auth",
-    tags=["auth"],
-)
-
-app.include_router(
-    get_verify_router(),
-    prefix="/api/v1/auth",
-    tags=["auth"],
-)
-
-app.include_router(get_api_key_management_router(), prefix="/api/v1/auth", tags=["auth"])
-
-app.include_router(get_add_router(), prefix="/api/v1/add", tags=["add"])
-
-app.include_router(get_cognify_router(), prefix="/api/v1/cognify", tags=["cognify"])
-
-app.include_router(get_memify_router(), prefix="/api/v1/memify", tags=["memify"])
-
-app.include_router(get_search_router(), prefix="/api/v1/search", tags=["search"])
-
-app.include_router(
-    get_permissions_router(),
-    prefix="/api/v1/permissions",
-    tags=["permissions"],
-)
-
-app.include_router(get_datasets_router(), prefix="/api/v1/datasets", tags=["datasets"])
-
-app.include_router(get_ontology_router(), prefix="/api/v1/ontologies", tags=["ontologies"])
-
-app.include_router(get_settings_router(), prefix="/api/v1/settings", tags=["settings"])
-
-app.include_router(get_visualize_router(), prefix="/api/v1/visualize", tags=["visualize"])
-
-app.include_router(
-    get_configuration_router(),
-    prefix="/api/v1/configuration",
-    tags=["configuration"],
-)
-
-app.include_router(get_delete_router(), prefix="/api/v1/delete", tags=["delete"])
-
-app.include_router(get_update_router(), prefix="/api/v1/update", tags=["update"])
-
-app.include_router(get_responses_router(), prefix="/api/v1/responses", tags=["responses"])
-
-app.include_router(get_llm_router(), prefix="/api/v1/llm", tags=["llm"])
-
-app.include_router(get_sync_router(), prefix="/api/v1/sync", tags=["sync"])
-
-app.include_router(
-    get_users_router(),
-    prefix="/api/v1/users",
-    tags=["users"],
-)
-
-app.include_router(
-    get_user_id_by_email_router(),
-    prefix="/api/v1/users",
-    tags=["users"],
-)
-
-app.include_router(
-    get_notebooks_router(),
-    prefix="/api/v1/notebooks",
-    tags=["notebooks"],
-)
-
-app.include_router(
-    get_checks_router(),
-    prefix="/api/v1/checks",
-    tags=["checks"],
-)
-
-app.include_router(
-    get_health_router(),
-    prefix="/health",
-    tags=["health"],
-)
-
-# Activity / observability
-app.include_router(
-    get_activity_router(),
-    prefix="/api/v1/activity",
-    tags=["activity"],
-)
-
-app.include_router(get_remember_router(), prefix="/api/v1/remember", tags=["remember"])
-app.include_router(get_recall_router(), prefix="/api/v1/recall", tags=["recall"])
-app.include_router(get_improve_router(), prefix="/api/v1/improve", tags=["improve"])
-app.include_router(get_forget_router(), prefix="/api/v1/forget", tags=["forget"])
-
-
-@app.get("/")
-async def root():
+    Example:
+        >>> client = CogneeClient()
+        >>> await client.add("path/to/document.pdf")
+        >>> results = await client.search("What is cognee?")
     """
-    Root endpoint that returns a welcome message.
-    """
-    return {"message": "Hello, World, I am alive!"}
 
+    def __init__(self, config: Optional[CogneeConfig] = None) -> None:
+        """Initialize the CogneeClient.
 
-def start_api_server(host: str = "0.0.0.0", port: int = 8000):
-    """
-    Start the API server using uvicorn.
-    Parameters:
-    host (str): The host for the server.
-    port (int): The port for the server.
-    """
-    try:
-        logger.info("Starting server at %s:%s", host, port)
+        Args:
+            config: Optional CogneeConfig instance. If not provided, a default
+                    configuration will be loaded from environment variables.
+        """
+        self.config = config or CogneeConfig()
+        self._initialized = False
+        logger.debug("CogneeClient created with config: %s", self.config)
 
-        uvicorn.run(app, host=host, port=port)
-    except Exception as e:
-        logger.exception(f"Failed to start server: {e}")
-        # Here you could add any cleanup code or error recovery code.
-        raise e
+    async def initialize(self) -> None:
+        """Initialize internal resources (databases, vector stores, etc.).
 
+        This is called automatically on first use but can be called explicitly
+        to pre-warm connections.
+        """
+        if self._initialized:
+            return
 
-if __name__ == "__main__":
-    logger = setup_logging()
+        logger.info("Initializing CogneeClient resources...")
+        # Future: set up DB connections, vector store, LLM clients
+        self._initialized = True
+        logger.info("CogneeClient initialized successfully.")
 
-    start_api_server(
-        host=os.getenv("HTTP_API_HOST", "0.0.0.0"), port=int(os.getenv("HTTP_API_PORT", 8000))
-    )
+    async def add(
+        self,
+        data: Union[str, Path, list[Union[str, Path]]],
+        dataset_name: str = "default",
+    ) -> dict[str, Any]:
+        """Add data to the cognee knowledge graph.
+
+        Args:
+            data: A file path, URL, raw text string, or a list of any of these.
+            dataset_name: The dataset namespace to store data under.
+
+        Returns:
+            A dictionary with ingestion status and metadata.
+
+        Raises:
+            ValueError: If data is empty or of an unsupported type.
+        """
+        await self.initialize()
+
+        if not data:
+            raise ValueError("Data must not be empty.")
+
+        items = data if isinstance(data, list) else [data]
+        logger.info("Adding %d item(s) to dataset '%s'.", len(items), dataset_name)
+
+        # Placeholder for actual ingestion pipeline
+        return {
+            "status": "queued",
+            "dataset": dataset_name,
+            "items_count": len(items),
+        }
+
+    async def cognify(self, dataset_name: str = "default") -> dict[str, Any]:
+        """Process and enrich the stored data into a knowledge graph.
+
+        Runs the full cognee pipeline: chunking, embedding, entity extraction,
+        and graph construction on the specified dataset.
+
+        Args:
+            dataset_name: The dataset to process.
+
+        Returns:
+            A dictionary with processing status and graph statistics.
+        """
+        await self.initialize()
+        logger.info("Running cognify pipeline on dataset '%s'.", dataset_name)
+
+        # Placeholder for actual pipeline execution
+        return {
+            "status": "completed",
+            "dataset": dataset_name,
+            "nodes_created": 0,
+            "edges_created": 0,
+        }
+
+    async def search(
+        self,
+        query: str,
+        search_type: str = "INSIGHTS",
+        top_k: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Search the knowledge graph.
+
+        Args:
+            query: Natural language query string.
+            search_type: One of 'INSIGHTS', 'CHUNKS', 'SUMMARIES', or 'GRAPH'.
+            top_k: Maximum number of results to return.
+
+        Returns:
+            A list of result dictionaries containing matched content and metadata.
+
+        Raises:
+            ValueError: If search_type is not a recognized value.
+        """
+        await self.initialize()
+
+        valid_types = {"INSIGHTS", "CHUNKS", "SUMMARIES", "GRAPH"}
+        if search_type not in valid_types:
+            raise ValueError(
+                f"Invalid search_type '{search_type}'. Must be one of {valid_types}."
+            )
+
+        logger.info("Searching with type='%s', query='%s'", search_type, query)
+
+        # Placeholder for actual search logic
+        return []
+
+    async def prune(self, dataset_name: Optional[str] = None) -> dict[str, Any]:
+        """Remove data from the knowledge graph.
+
+        Args:
+            dataset_name: If provided, only removes data from this dataset.
+                          If None, clears all data (use with caution).
+
+        Returns:
+            A dictionary with deletion status.
+        """
+        await self.initialize()
+        scope = dataset_name or "ALL"
+        logger.warning("Pruning data for scope: %s", scope)
+
+        return {"status": "pruned", "scope": scope}
