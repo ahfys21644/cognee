@@ -51,3 +51,12 @@ def search_graph(query: str, top_k: int = 100, **kwargs):
     if top_k is None:
         return search(query, search_type=SearchType.GRAPH, **kwargs)
     return search(query, search_type=SearchType.GRAPH, top_k=top_k, **kwargs)
+
+
+def version_info() -> str:
+    """Return a human-readable version string including author info.
+
+    Handy for quick sanity checks when switching between the fork and upstream.
+    Example: 'cognee 0.1.0 (topoteretes fork)'
+    """
+    return f"cognee {__version__} ({__author__})"
