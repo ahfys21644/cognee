@@ -37,6 +37,9 @@ def search_graph(query: str, top_k: int = 100, **kwargs):
     Bumped top_k default from 50 -> 100; was still seeing truncated results
     on larger knowledge graphs in my experiments. Set top_k=None to remove
     the limit entirely (useful for small graphs where you want everything).
+
+    Note: results are returned as a list of dicts. Each dict has 'node' and
+    'score' keys. The 'node' value is a dict with 'id', 'name', and 'type'.
     """
     from cognee.api.v1.search import SearchType
     # Allow callers to pass top_k=None to get all results without a cap
