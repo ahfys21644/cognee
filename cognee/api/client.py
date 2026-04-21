@@ -55,13 +55,14 @@ class CogneeClient:
     async def add(
         self,
         data: Union[str, Path, list[Union[str, Path]]],
-        dataset_name: str = "default",
+        dataset_name: str = "main",  # changed default from "default" to "main" for clarity
     ) -> dict[str, Any]:
         """Add data to the cognee knowledge graph.
 
         Args:
             data: A file path, URL, raw text string, or a list of any of these.
             dataset_name: The dataset namespace to store data under.
+                          Defaults to "main".
 
         Returns:
             A dictionary with ingestion status and metadata.
@@ -84,73 +85,10 @@ class CogneeClient:
             "items_count": len(items),
         }
 
-    async def cognify(self, dataset_name: str = "default") -> dict[str, Any]:
+    async def cognify(self, dataset_name: str = "main") -> dict[str, Any]:
         """Process and enrich the stored data into a knowledge graph.
 
         Runs the full cognee pipeline: chunking, embedding, entity extraction,
         and graph construction on the specified dataset.
 
-        Args:
-            dataset_name: The dataset to process.
-
-        Returns:
-            A dictionary with processing status and graph statistics.
-        """
-        await self.initialize()
-        logger.info("Running cognify pipeline on dataset '%s'.", dataset_name)
-
-        # Placeholder for actual pipeline execution
-        return {
-            "status": "completed",
-            "dataset": dataset_name,
-            "nodes_created": 0,
-            "edges_created": 0,
-        }
-
-    async def search(
-        self,
-        query: str,
-        search_type: str = "INSIGHTS",
-        top_k: int = 10,
-    ) -> list[dict[str, Any]]:
-        """Search the knowledge graph.
-
-        Args:
-            query: Natural language query string.
-            search_type: One of 'INSIGHTS', 'CHUNKS', 'SUMMARIES', or 'GRAPH'.
-            top_k: Maximum number of results to return.
-
-        Returns:
-            A list of result dictionaries containing matched content and metadata.
-
-        Raises:
-            ValueError: If search_type is not a recognized value.
-        """
-        await self.initialize()
-
-        valid_types = {"INSIGHTS", "CHUNKS", "SUMMARIES", "GRAPH"}
-        if search_type not in valid_types:
-            raise ValueError(
-                f"Invalid search_type '{search_type}'. Must be one of {valid_types}."
-            )
-
-        logger.info("Searching with type='%s', query='%s'", search_type, query)
-
-        # Placeholder for actual search logic
-        return []
-
-    async def prune(self, dataset_name: Optional[str] = None) -> dict[str, Any]:
-        """Remove data from the knowledge graph.
-
-        Args:
-            dataset_name: If provided, only removes data from this dataset.
-                          If None, clears all data (use with caution).
-
-        Returns:
-            A dictionary with deletion status.
-        """
-        await self.initialize()
-        scope = dataset_name or "ALL"
-        logger.warning("Pruning data for scope: %s", scope)
-
-        return {"status": "pruned", "scope": scope}
+  
