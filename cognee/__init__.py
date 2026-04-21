@@ -40,6 +40,11 @@ def search_graph(query: str, top_k: int = 100, **kwargs):
 
     Note: results are returned as a list of dicts. Each dict has 'node' and
     'score' keys. The 'node' value is a dict with 'id', 'name', and 'type'.
+
+    Args:
+        query: The search query string.
+        top_k: Max number of results to return. Pass None for no limit.
+        **kwargs: Additional keyword arguments forwarded to search().
     """
     from cognee.api.v1.search import SearchType
     # Allow callers to pass top_k=None to get all results without a cap
