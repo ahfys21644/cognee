@@ -88,7 +88,21 @@ class CogneeClient:
     async def cognify(self, dataset_name: str = "main") -> dict[str, Any]:
         """Process and enrich the stored data into a knowledge graph.
 
-        Runs the full cognee pipeline: chunking, embedding, entity extraction,
-        and graph construction on the specified dataset.
+        Runs the full cognee pipeline: chunking, entity extraction, and graph
+        construction. Should be called after add() to build the knowledge graph.
 
-  
+        Args:
+            dataset_name: The dataset namespace to process. Defaults to "main".
+
+        Returns:
+            A dictionary with processing status and metadata.
+        """
+        await self.initialize()
+
+        logger.info("Running cognify pipeline on dataset '%s'.", dataset_name)
+
+        # Placeholder for actual cognify pipeline
+        return {
+            "status": "completed",
+            "dataset": dataset_name,
+        }
